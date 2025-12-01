@@ -1,3 +1,4 @@
+# services/preprocessing_service.py
 import pandas as pd
 import numpy as np
 from pathlib import Path
@@ -13,6 +14,7 @@ logger = structlog.get_logger()
 class PreprocessingService:
     def __init__(self):
         self.upload_dir = Path(settings.upload_directory)
+        self.upload_dir.mkdir(parents=True, exist_ok=True)
     
     def preprocess_dataset(
         self,
@@ -26,7 +28,7 @@ class PreprocessingService:
         """Preprocess a dataset with specified parameters"""
         try:
             # Load dataset
-            df = pd.read_csv(file_path)
+            df = pd.read_csv(file_path, encoding='utf-8', engine='python', on_bad_lines='skip')
             original_filename = Path(file_path).name
             
             # Apply feature selection
@@ -42,7 +44,7 @@ class PreprocessingService:
             # Separate features and target
             if target_column and target_column in df.columns:
                 X = df.drop(columns=[target_column])
-                y = df[target_column]
+                y = df[target_column].reset_index(drop=True)
             else:
                 X = df
                 y = None
@@ -52,7 +54,7 @@ class PreprocessingService:
             
             # Reconstruct dataframe
             if y is not None:
-                df_processed = pd.concat([X_processed, y.reset_index(drop=True)], axis=1)
+                df_processed = pd.concat([X_processed.reset_index(drop=True), y.reset_index(drop=True)], axis=1)
             else:
                 df_processed = X_processed
             
@@ -80,7 +82,10 @@ class PreprocessingService:
             df_copy[numeric_cols] = df_copy[numeric_cols].fillna(df_copy[numeric_cols].median())
         elif strategy == "mode":
             for col in df_copy.columns:
-                df_copy[col] = df_copy[col].fillna(df_copy[col].mode().iloc[0] if len(df_copy[col].mode()) > 0 else df_copy[col])
+                modes = df_copy[col].mode()
+                fill = modes.iloc[0] if len(modes) > 0 else None
+                if fill is not None:
+                    df_copy[col] = df_copy[col].fillna(fill)
         elif strategy == "drop":
             df_copy = df_copy.dropna()
         
@@ -102,6 +107,7 @@ class PreprocessingService:
         
         # Build preprocessing pipeline
         transformers = []
+        working_X = X.copy()
         
         # Numeric preprocessing
         if numeric_cols:
@@ -113,39 +119,57 @@ class PreprocessingService:
         # Categorical preprocessing
         if categorical_cols:
             if encoding == "onehot":
+                # sparse_output=False returns dense arrays (sklearn 1.2+)
                 transformers.append(('cat', OneHotEncoder(drop='first', sparse_output=False, handle_unknown='ignore'), categorical_cols))
             elif encoding == "label":
                 # Apply label encoding manually
-                X_copy = X.copy()
                 for col in categorical_cols:
                     le = LabelEncoder()
-                    X_copy[col] = le.fit_transform(X_copy[col].astype(str))
+                    working_X[col] = le.fit_transform(working_X[col].astype(str))
                 transformers.append(('cat', 'passthrough', categorical_cols))
-                X = X_copy
             else:  # fallback to onehot
                 transformers.append(('cat', OneHotEncoder(drop='first', sparse_output=False, handle_unknown='ignore'), categorical_cols))
         
         if not transformers:
-            return X
+            return working_X.reset_index(drop=True)
         
         # Apply transformations
         preprocessor = ColumnTransformer(transformers=transformers, remainder='drop')
-        X_transformed = preprocessor.fit_transform(X)
+        X_transformed = preprocessor.fit_transform(working_X)
         
-        # Get feature names
+        # Get feature names carefully
         feature_names = []
         for name, transformer, cols in preprocessor.transformers_:
-            if name == 'num':
+            if transformer == 'passthrough':
+                # passthrough: preserve original column names
                 feature_names.extend(cols)
-            elif name == 'cat' and encoding == "onehot":
-                if hasattr(transformer, 'get_feature_names_out'):
-                    feature_names.extend(transformer.get_feature_names_out(cols))
-                else:
-                    feature_names.extend(cols)
             else:
-                feature_names.extend(cols)
+                # transformer is a fitted transformer (e.g., StandardScaler or OneHotEncoder)
+                # For numeric (StandardScaler) just keep original names
+                if name == 'num':
+                    feature_names.extend(cols)
+                elif name == 'cat':
+                    # OneHotEncoder may provide get_feature_names_out
+                    fitted = transformer
+                    if hasattr(fitted, 'get_feature_names_out'):
+                        try:
+                            out_names = list(fitted.get_feature_names_out(cols))
+                            feature_names.extend(out_names)
+                        except Exception:
+                            feature_names.extend(cols)
+                    else:
+                        feature_names.extend(cols)
+                else:
+                    # default fallback
+                    feature_names.extend(cols)
         
-        return pd.DataFrame(X_transformed, columns=feature_names)
+        # Ensure X_transformed is 2D numpy array
+        import numpy as _np
+        if _np.ndim(X_transformed) == 1:
+            X_transformed = _np.expand_dims(X_transformed, axis=1)
+        
+        df_transformed = pd.DataFrame(X_transformed, columns=feature_names)
+        return df_transformed.reset_index(drop=True)
     
     def suggest_missing_strategy(self, df: pd.DataFrame) -> str:
         """Suggest best missing value strategy for dataset"""
@@ -166,15 +190,16 @@ class PreprocessingService:
         categorical_cols = df.select_dtypes(include=['object', 'category']).columns
         
         # For numeric columns, check skewness
-        if any(numeric_cols.isin(missing_counts[missing_counts > 0].index)):
-            numeric_with_missing = numeric_cols.intersection(missing_counts[missing_counts > 0].index)
+        numeric_with_missing = numeric_cols.intersection(missing_counts[missing_counts > 0].index)
+        if len(numeric_with_missing) > 0:
             skewness = df[numeric_with_missing].skew().abs()
             if any(skewness > 1):
                 return 'median'
             return 'mean'
         
         # For categorical columns
-        if any(categorical_cols.isin(missing_counts[missing_counts > 0].index)):
+        categorical_with_missing = categorical_cols.intersection(missing_counts[missing_counts > 0].index)
+        if len(categorical_with_missing) > 0:
             return 'mode'
         
         return 'mean'
