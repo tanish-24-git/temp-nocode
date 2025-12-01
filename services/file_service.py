@@ -9,7 +9,6 @@ import structlog
 import anyio
 from uuid import uuid4
 
-
 from config.settings import settings
 from utils.validators import file_validator
 from services.insight_service import InsightService
@@ -69,21 +68,35 @@ class FileService:
           Returns a dict matching models.responses.DatasetInsights expectations.
         """
         try:
-            # read only a sample and small full summary offloaded to thread to avoid blocking
             def _read_sample_and_summary(fp: str):
-                # be forgiving: try csv first; if fails, raise to outer handler
-                df = pd.read_csv(fp, nrows=500)
-                full_df = pd.read_csv(fp, nrows=1000)  # limited for summary calc to avoid OOM
+                # read a small sample and a slightly larger frame for limited summary
+                # read sample (nrows small) to avoid OOM
+                df_sample = pd.read_csv(fp, nrows=500, encoding='utf-8', engine='python', on_bad_lines='skip')
+                df_summary = pd.read_csv(fp, nrows=1000, encoding='utf-8', engine='python', on_bad_lines='skip')
+
+                # safe row counting: iterate in text mode with errors ignored
+                row_count = 0
+                try:
+                    with open(fp, 'r', encoding='utf-8', errors='ignore') as fh:
+                        for _ in fh:
+                            row_count += 1
+                    # subtract header if present
+                    if row_count > 0:
+                        row_count = row_count - 1
+                except Exception:
+                    # fallback estimate to number of rows read in df_summary
+                    row_count = int(len(df_summary))
+
                 summary = {
-                    "columns": list(full_df.columns),
-                    "rows": int(sum(1 for _ in open(fp)) - 1),  # best-effort row count without loading entire file
-                    "sample_rows": len(df),
-                    "data_types": full_df.dtypes.astype(str).to_dict(),
-                    "missing_values": full_df.isnull().sum().to_dict(),
-                    "unique_values": {col: int(full_df[col].nunique()) for col in full_df.columns},
+                    "columns": list(df_summary.columns),
+                    "rows": int(row_count),
+                    "sample_rows": len(df_sample),
+                    "data_types": df_summary.dtypes.astype(str).to_dict(),
+                    "missing_values": df_summary.isnull().sum().to_dict(),
+                    "unique_values": {col: int(df_summary[col].nunique()) for col in df_summary.columns},
                     "file_size_mb": os.path.getsize(fp) / (1024 * 1024)
                 }
-                return summary, df
+                return summary, df_sample
 
             summary, sample_df = await anyio.to_thread.run_sync(_read_sample_and_summary, file_path)
 
@@ -105,7 +118,6 @@ class FileService:
                 logger.debug("LLMService not configured; skipping LLM augmentation")
 
             # Choose final suggested values preferring LLM if present, otherwise heuristic
-            # Accept multiple possible key names returned by different LLM formats
             suggested_task_type = (
                 llm_suggestions.get("suggested_task")
                 or llm_suggestions.get("suggested_task_type")
@@ -150,6 +162,8 @@ class FileService:
 
             return merged
 
+        except HTTPException:
+            raise
         except Exception as e:
             logger.error(f"Error analyzing dataset: {str(e)}")
             # Keep error message readable for API clients
