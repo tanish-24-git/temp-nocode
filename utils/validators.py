@@ -17,8 +17,6 @@ MALICIOUS_SIGNATURES = {
     b'\x89\x50\x4e\x47',  # PNG
 }
 
-# Behavior toggle: allow duplicate uploads (default True while developing).
-# If you want to enforce duplicate blocking set ALLOW_DUPLICATE_UPLOADS=0 in env.
 ALLOW_DUPLICATE_UPLOADS = os.getenv("ALLOW_DUPLICATE_UPLOADS", "1") not in ("0", "false", "False")
 
 class EnhancedFileValidator:
@@ -62,18 +60,21 @@ class EnhancedFileValidator:
         else:
             self.uploaded_hashes.add(file_hash)
 
-        # If CSV: try reading the first few rows only to detect structure (nrows)
+        # If CSV: try reading the first few rows only to detect structure (use text decode safely)
         if ext == '.csv':
             try:
-                # read a small chunk - uses pandas but bounded
                 await file.seek(0)
-                chunk = await file.read(1024 * 512)  # read 512KB
+                chunk = await file.read(1024 * 256)  # read 256KB
+                # decode safely to text to avoid broken-byte boundaries
+                text = chunk.decode('utf-8', errors='ignore')
                 await file.seek(0)
-                df = pd.read_csv(io.BytesIO(chunk), nrows=50)
+                df = pd.read_csv(io.StringIO(text), nrows=50)
                 if df.shape[1] == 0:
                     raise HTTPException(status_code=400, detail="CSV file has no columns")
             except pd.errors.EmptyDataError:
                 raise HTTPException(status_code=400, detail="Empty CSV file")
+            except HTTPException:
+                raise
             except Exception as e:
                 raise HTTPException(status_code=400, detail=f"CSV validation failed: {str(e)}")
 
