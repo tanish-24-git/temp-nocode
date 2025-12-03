@@ -1,14 +1,18 @@
-# scripts/download_models.py - Run on Docker build for prod
-import nltk
 import spacy
+import nltk
+from nltk.corpus import stopwords
 
-# NLTK data (essential for tokenization/stopwords)
-nltk.download('punkt', quiet=True)
-nltk.download('stopwords', quiet=True)
-nltk.download('wordnet', quiet=True)  # For lemmatization fallback
-nltk.download('omw-1.4', quiet=True)
+def main():
+    # spaCy model
+    spacy.cli.download("en_core_web_sm")  # remove quiet=True
 
-# spaCy model (small English for prod balance)
-spacy.cli.download("en_core_web_sm", quiet=True)
+    # NLTK resources
+    nltk.download("punkt")
+    nltk.download("stopwords")
+    nltk.download("wordnet")
+    nltk.download("omw-1.4")
 
-print("Models downloaded successfully.")
+    print("Models downloaded successfully.")
+
+if __name__ == "__main__":
+    main()

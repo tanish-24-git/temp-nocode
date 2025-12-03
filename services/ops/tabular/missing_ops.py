@@ -2,7 +2,9 @@
 from typing import List, Dict, Any, Tuple
 import pandas as pd
 import numpy as np
+from sklearn.experimental import enable_iterative_imputer  # noqa: F401
 from sklearn.impute import SimpleImputer, KNNImputer, IterativeImputer
+
 from sklearn.pipeline import Pipeline
 from scipy.stats import mode
 OP_REGISTRY = {}
