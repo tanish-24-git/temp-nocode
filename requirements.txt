@@ -10,10 +10,6 @@ redis==5.0.1
 rq==1.16.0
 celery==5.3.6
 
-# Database
-sqlalchemy==2.0.25
-psycopg2-binary==2.9.9
-alembic==1.13.1
 
 # Object Storage
 minio==7.2.3

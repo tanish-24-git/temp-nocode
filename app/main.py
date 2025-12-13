@@ -120,12 +120,14 @@ async def root():
     }
 
 
-# Import and include routers (will be created next)
-# from app.api.routes import jobs, datasets, models, logs
-# app.include_router(jobs.router, prefix="/api/v1/jobs", tags=["jobs"])
-# app.include_router(datasets.router, prefix="/api/v1/datasets", tags=["datasets"])
-# app.include_router(models.router, prefix="/api/v1/models", tags=["models"])
-# app.include_router(logs.router, prefix="/api/v1/logs", tags=["logs"])
+
+# Import and include routers
+from app.api.routes import jobs, datasets, models, logs
+
+app.include_router(jobs.router)
+app.include_router(datasets.router)
+app.include_router(models.router)
+app.include_router(logs.router)
 
 
 if __name__ == "__main__":

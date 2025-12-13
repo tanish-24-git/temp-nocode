@@ -30,16 +30,6 @@ class Settings(BaseSettings):
     redis_url: str = Field(default="redis://localhost:6379/0", description="Redis connection URL")
     redis_max_connections: int = Field(default=50, description="Redis connection pool size")
     
-    # PostgreSQL Configuration
-    postgres_host: str = Field(default="localhost", description="PostgreSQL host")
-    postgres_port: int = Field(default=5432, description="PostgreSQL port")
-    postgres_user: str = Field(default="llm_platform", description="PostgreSQL user")
-    postgres_password: str = Field(default="changeme123", description="PostgreSQL password")
-    postgres_db: str = Field(default="llm_platform", description="PostgreSQL database name")
-    database_url: str = Field(
-        default="postgresql://llm_platform:changeme123@localhost:5432/llm_platform",
-        description="Full database URL"
-    )
     
     # MinIO Object Storage
     minio_endpoint: str = Field(default="localhost:9000", description="MinIO endpoint")
