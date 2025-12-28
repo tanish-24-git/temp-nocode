@@ -181,8 +181,23 @@ export default function CreateJob() {
             agent_name: "training",
             agent_class: "TrainingAgent",
             config: {
-              ...formData.training,
-              ...formData.advanced,
+              // Training config
+              training_mode: formData.training_mode,
+              base_model: formData.base_model,
+              epochs: formData.epochs,
+              batch_size: formData.batch_size,
+              learning_rate: formData.learning_rate,
+              max_seq_len: formData.max_seq_len,
+              lora_rank: formData.lora_rank,
+              
+              // Advanced config
+              gradient_accumulation: formData.gradient_accumulation,
+              precision: formData.precision,
+              early_stopping: formData.early_stopping,
+              class_balancing: formData.class_balancing,
+              data_augmentation: formData.data_augmentation,
+              resume_checkpoint: formData.resume_checkpoint || undefined,
+
               dataset_id: datasetId 
             }
           },
