@@ -167,35 +167,52 @@ export default function CreateJob() {
   const submitJob = async () => {
     setLoading(true);
     try {
-      const jobConfig = {
-        dataset_id: datasetId,
-        task: {
-          task_type: formData.task_type,
-          output_type: formData.output_type,
-          domain: formData.domain,
-          language: formData.language,
-        },
-        training: {
-          training_mode: formData.training_mode,
-          base_model: formData.base_model,
-          epochs: formData.epochs,
-          batch_size: formData.batch_size,
-          learning_rate: formData.learning_rate,
-          max_seq_len: formData.max_seq_len,
-          lora_rank: formData.lora_rank,
-        },
-        advanced: {
-          gradient_accumulation: formData.gradient_accumulation,
-          precision: formData.precision,
-          early_stopping: formData.early_stopping,
-          class_balancing: formData.class_balancing,
-          data_augmentation: formData.data_augmentation,
-          resume_checkpoint: formData.resume_checkpoint || undefined,
-        },
+      // Create DAG for pipeline
+      const runId = Date.now().toString();
+      const pipelineConfig = {
+        run_id: runId,
+        nodes: [
+          {
+            agent_name: "dataset",
+            agent_class: "DatasetAgent",
+            config: { dataset_id: datasetId }
+          },
+          {
+            agent_name: "training",
+            agent_class: "TrainingAgent",
+            config: {
+              ...formData.training,
+              ...formData.advanced,
+              dataset_id: datasetId 
+            }
+          },
+          {
+            agent_name: "evaluation",
+            agent_class: "EvaluationAgent",
+            config: { 
+              metrics: ["f1", "rouge", "bleu"],
+              dataset_id: datasetId
+            }
+          },
+          {
+            agent_name: "export",
+            agent_class: "ExportAgent",
+            config: { formats: ["safetensors", "gguf"] }
+          }
+        ],
+        edges: [
+          { from_agent: "dataset", to_agent: "training" },
+          { from_agent: "training", to_agent: "evaluation" },
+          { from_agent: "evaluation", to_agent: "export" }
+        ],
+        global_config: {
+           project_id: projectId,
+           ...formData
+        }
       };
 
       const response = await jobsAPI.submit({
-        pipeline_config: jobConfig
+        pipeline_config: pipelineConfig
       });
       
       toast.success('Job submitted!');
